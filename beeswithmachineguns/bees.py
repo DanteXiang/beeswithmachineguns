@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/bin/env python3
 
 """
 The MIT License
@@ -60,7 +60,9 @@ import paramiko
 import json
 from collections import defaultdict
 import time
-
+# Ye added:
+import boto.ec2.instance
+import subprocess
 
 STATE_FILENAME = os.path.expanduser('~/.bees')
 
@@ -206,23 +208,63 @@ def up(count, group, zone, image_id, instance_type, username, key_name, subnet, 
     else:
         print('Attempting to call up %i bees.' % count)
 
-        try:
-            reservation = ec2_connection.run_instances(
-                image_id=image_id,
-                min_count=count,
-                max_count=count,
-                key_name=key_name,
-                security_group_ids=[groupId],
-                instance_type=instance_type,
-                placement=placement,
-                subnet_id=subnet)
+       # try:
+       #     reservation = ec2_connection.run_instances(
+       #         image_id=image_id,
+       #         min_count=count,
+       #         max_count=count,
+       #         key_name=key_name,
+       #         security_group_ids=[groupId],
+       #         instance_type=instance_type,
+       #         placement=placement,
+       #         subnet_id=subnet)
 
-        except boto.exception.EC2ResponseError as e:
-            print(("Unable to call bees:", e.message))
-            print("Is your sec group available in this region?")
-            print(subnet)
-            print(groupId)
+        #except boto.exception.EC2ResponseError as e:
+         #   print(("Unable to call bees:", e.message))
+          #  print("Is your sec group available in this region?")
+          #  print(subnet)
+          #  print(groupId)
+          #  return e
+        try:
+            print("invoking command from console")
+            command = "aws ec2 run-instances --image-id " + image_id + " --count " + str(count) + " --instance-type " + instance_type + " --key-name " + key_name + " --subnet-id " + subnet + " --security-group-ids " + groupId
+            print("running command: " + command)
+
+            output=subprocess.check_output(command, shell=True).decode()
+            print("output: ", output)
+            data = json.loads(output)
+            reservation = boto.ec2.instance.Reservation()
+            print("allcated reservation")
+            # Set the attributes using the dictionary values
+            reservation.id = data['ReservationId']
+            reservation.owner_id = data['OwnerId']
+            print("loaded reservation")
+            # Create Instance objects and add them to the reservation
+            instances = []
+            print("loading instances")
+            for instance_data in data['Instances']:
+                instance = boto.ec2.instance.Instance()
+                print("loading instance_data")
+                instance.id = instance_data['InstanceId']
+                print("loading instancetype")
+                instance.instance_type = instance_data['InstanceType']
+                print("InstanceType")
+                ##print(instance_data['State']['Name'])
+                #print(instance_data['State']['Code'])
+                #print(type(instance.state))
+                #instance.state = instance_data['State']['Name']
+                #instance.state_code = instance_data['State']['Code']
+                # Set additional instance attributes...i
+                print("set attributes")
+                instances.append(instance)
+
+            # Set the instances attribute of the Reservation
+            reservation.instances = instances
+        except Exception as e:
+            print(e)
+            print(("something went wrong when loading/creating instances"))
             return e
+
 
         instances = reservation.instances
     if tags:
@@ -242,19 +284,19 @@ def up(count, group, zone, image_id, instance_type, username, key_name, subnet, 
         list(map(instance_ids.pop, [instance_ids.index(i) for i in dead_instances]))
 
     print('Waiting for bees to load their machine guns...')
-
+    print(instance_ids)
     instance_ids = instance_ids or []
 
-    for instance in [i for i in instances if i.state == 'pending']:
-        instance.update()
-        while instance.state != 'running':
-            print('.')
-            time.sleep(5)
-            instance.update()
+    for instance in [i for i in instances]:
+        #instance.update()
+        #while instance.state != 'running':
+         #   print('.')
+          #  time.sleep(5)
+           # instance.update()
 
         instance_ids.append(instance.id)
 
-        print('Bee %s is ready for the attack.' % instance.id)
+        #print('Bee %s is ready for the attack.' % instance.id)
 
     ec2_connection.create_tags(instance_ids, { "Name": "a bee!" })
 
@@ -1296,6 +1338,7 @@ def _hurl_print_results(summarized_results):
 def _get_new_state_file_name(zone):
     ''' take zone and return multi regional bee file,
     from ~/.bees to ~/.bees.${region}'''
+    print(STATE_FILENAME+'.'+zone)
     return STATE_FILENAME+'.'+zone
 
 def _get_existing_regions():
